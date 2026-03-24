@@ -125,3 +125,89 @@ kill -15 $TARGET_PID
 
 ```bash
 nohup java -jar /home/ubuntu/deploy/app.jar > /home/ubuntu/deploy/app.log 2>&1 &
+```
+## 📁 프로젝트 구조 예시
+```bash
+/home/ubuntu/deploy
+├── app.jar
+├── app.log
+└── deploy.sh
+```
+## 🖥️ 배포 스크립트
+
+본 프로젝트에서는 파일 감시와 재배포 로직을 하나의 Bash 스크립트로 통합했습니다.
+app.jar 변경 감지 후 기존 프로세스를 종료하고 새 애플리케이션을 실행하는 흐름을 자동화했습니다.
+```md
+### `deploy.sh`
+
+```bash
+#!/bin/bash
+
+WATCH_DIR="/home/ubuntu/deploy"
+JAR_FILE="app.jar"
+COOLDOWN=15
+LAST_RUN=0
+
+echo "👀 [감시 시작] $WATCH_DIR 폴더의 $JAR_FILE 파일을 지켜보고 있습니다..."
+
+inotifywait -m -e close_write "$WATCH_DIR" |
+while read -r directory events filename; do
+    if [ "$filename" = "$JAR_FILE" ]; then
+        CURRENT_TIME=$(date +%s)
+
+        if (( CURRENT_TIME - LAST_RUN > COOLDOWN )); then
+            echo "✨ [감지] 새로운 $filename 파일이 입고되었습니다. 배포를 시작합니다! ($(date))"
+            LAST_RUN=$CURRENT_TIME
+
+            TARGET_PID=$(lsof -ti:9090)
+            if [ -n "$TARGET_PID" ]; then
+                echo "🛑 기존 프로세스($TARGET_PID)를 종료합니다."
+                kill -15 $TARGET_PID
+                sleep 5
+            fi
+
+            echo "🏃 새 애플리케이션을 실행합니다..."
+            nohup java -jar "$WATCH_DIR/$JAR_FILE" > "$WATCH_DIR/app.log" 2>&1 &
+
+            echo "✅ 배포 완료! 서비스가 갱신되었습니다."
+            echo "--------------------------------------------------"
+        else
+            echo "⏳ [대기] 쿨다운 기간 중입니다. 잠시 후 다시 시도해주세요."
+        fi
+    fi
+done
+```
+
+## 📈 실행 결과
+
+app.jar 파일 전송 후 서버가 이를 자동으로 감지했고, 기존 프로세스를 종료한 뒤 새 애플리케이션을 9090 포트에서 정상적으로 재실행했습니다.  
+이후 로그와 엔드포인트 응답을 통해 배포가 정상 완료되었음을 확인했습니다.
+
+### 1. 자동 재배포 실행 로그
+![자동 재배포 로그](image2.png)
+
+### 2. 엔드포인트 응답 확인
+![웹페이지 변경사항](image1.png)
+
+## 🚨 트러블슈팅
+1. Unexpected operator 오류
+- 문제점: sh로 실행할 때 비교 구문에서 오류가 발생했습니다.
+- 원인: Ubuntu 기본 sh 환경과 Bash 문법 차이 때문이었습니다.
+- 해결: bash deploy.sh로 실행하도록 변경해 해결했습니다.
+
+## ✅ 실행 방법
+```bash
+sudo apt update
+sudo apt install -y inotify-tools lsof
+chmod +x deploy.sh
+bash deploy.sh
+scp ./build/libs/*.jar ubuntu@server:/home/ubuntu/deploy/app.jar
+```
+
+## 🚀 향후 개선 방향
+
+| 기능 | 설명 | 기대 효과 |
+|---|---|---|
+| Health Check | 배포 후 정상 응답 확인 로직 추가 | 배포 성공 여부 자동 검증 |
+| Rollback | 실행 실패 시 이전 버전 복구 | 배포 안정성 향상 |
+| Slack/Discord 알림 | 배포 결과를 메시지로 전송 | 서버 접속 없이 상태 확인 |
