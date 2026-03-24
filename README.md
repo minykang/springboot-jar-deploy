@@ -126,6 +126,93 @@ kill -15 $TARGET_PID
 ```bash
 nohup java -jar /home/ubuntu/deploy/app.jar > /home/ubuntu/deploy/app.log 2>&1 &
 ```
+
+---
+
+## 📦 Spring Boot Build & JAR 기반 배포
+
+### 1. Spring Boot Build 과정
+
+이 프로젝트는 **Gradle 기반 Spring Boot 애플리케이션**입니다.
+
+Windows 로컬 환경에서 코드를 수정한 뒤, 아래 명령어로 실행 가능한 JAR 파일을 생성합니다.
+
+```
+./gradlew clean build
+```
+
+위 명령어는 다음 작업을 수행합니다.
+
+- 기존 build 결과 삭제
+- 소스 코드 컴파일
+- 테스트 수행
+- 실행 가능한 JAR 생성
+
+<br/>
+
+### 2. JAR 파일 생성 위치
+
+빌드가 완료되면 JAR 파일은 다음 경로에 생성됩니다.
+
+```
+build/libs/
+```
+
+예시:
+
+```
+step06_buildGradleTest-0.0.1-SNAPSHOT.jar
+step06_buildGradleTest-0.0.1-SNAPSHOT-plain.jar
+```
+
+<br/>
+
+### 3. 실행용 JAR vs Plain JAR
+
+Spring Boot 프로젝트는 빌드 시 두 종류의 JAR가 생성될 수 있습니다.
+
+| 파일명 | 설명 | 사용 여부 |
+| --- | --- | --- |
+| `step06_buildGradleTest-0.0.1-SNAPSHOT.jar` | 실행 가능한 Spring Boot JAR (내장 Tomcat 포함) | ✅ 사용 |
+| `step06_buildGradleTest-0.0.1-SNAPSHOT-plain.jar` | 일반 Java 라이브러리 JAR | ❌ 사용 안 함 |
+
+배포 시에는 반드시 **plain이 붙지 않은 실행용 JAR**를 사용해야 합니다.
+
+
+<br/>
+
+
+### 4. JAR 기반 배포 전략
+
+이 프로젝트는 **서버에서 소스코드를 빌드하지 않고**,
+
+**Windows에서 빌드한 JAR 파일을 그대로 Ubuntu 서버에 전달하는 방식**으로 동작합니다.
+
+전체 흐름은 다음과 같습니다.
+
+1. Windows에서 코드 수정
+2. `./gradlew clean build`로 새로운 JAR 생성
+3. `scp`로 Ubuntu 서버에 `app.jar` 업로드
+4. Ubuntu에서 파일 변경 감지
+5. 기존 프로세스 종료
+6. 새 JAR 실행
+7. 변경된 서비스 즉시 반영
+
+<br/>
+
+### 5. Spring Boot 실행 설정
+
+실행 포트는 `application.properties`에서 설정했습니다.
+
+```
+spring.application.name=step06_buildGradleTest
+server.port=9090
+```
+
+실습 환경에서는 8080 포트 대신 9090 포트를 사용해 정상 실행되도록 구성했습니다.
+
+<br/>
+
 ## 📁 프로젝트 구조 예시
 ```bash
 /home/ubuntu/deploy
@@ -190,10 +277,25 @@ app.jar 파일 전송 후 서버가 이를 자동으로 감지했고, 기존 프
 ![웹페이지 변경사항](image1.png)
 
 ## 🚨 트러블슈팅
-1. Unexpected operator 오류
+**1. Unexpected operator 오류**
 - 문제점: sh로 실행할 때 비교 구문에서 오류가 발생했습니다.
 - 원인: Ubuntu 기본 sh 환경과 Bash 문법 차이 때문이었습니다.
 - 해결: bash deploy.sh로 실행하도록 변경해 해결했습니다.
+  
+**2. 80 포트 실행 실패**
+- 문제점: Ubuntu 서버에서 `server.port=80`으로 실행 시 애플리케이션이 기동되지 않았습니다.
+- 원인: 일반 사용자 계정으로는 1024 이하의 포트 바인딩에 권한 문제가 발생할 수 있었습니다.
+- 해결: `application.properties`에서 실행 포트를 `9090`으로 변경하여 정상 실행되도록 수정했습니다.
+
+**3. plain.jar 파일 사용 혼동**
+- 문제점: 빌드 후 생성된 `-plain.jar`와 실행용 JAR 중 어떤 파일을 배포해야 하는지 혼동이 있었습니다.
+- 원인: Spring Boot Gradle 빌드 시 실행 가능한 JAR와 일반 JAR가 함께 생성되기 때문이었습니다.
+- 해결: 배포 시에는 **plain이 붙지 않은 실행용 JAR만 사용**하도록 정리했습니다.
+
+**4. 애플리케이션 실행 실패로 보였던 문제**
+- 문제점: watch 스크립트에서 배포 직후 실패 메시지가 출력되었습니다.
+- 원인: Spring Boot 애플리케이션이 완전히 기동되기 전에 포트 체크를 수행해, 실제로는 실행 중인데 실패로 오판정한 경우가 있었습니다.
+- 해결: 실행 후 일정 시간 대기하거나 반복 확인 로직을 추가해 정상 기동 여부를 더 안정적으로 판별하도록 개선했습니다.
 
 ## ✅ 실행 방법
 ```bash
